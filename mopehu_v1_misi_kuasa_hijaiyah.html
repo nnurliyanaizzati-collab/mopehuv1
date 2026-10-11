@@ -1,0 +1,2123 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>MoPeHu-V1: Misi Kuasa Hijaiyah</title>
+  
+  <!-- MediaPipe Hands & Camera Utils CDN (Pinned to stable matching versions) -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.4.1675466862/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/hands.js" crossorigin="anonymous"></script>
+
+  <style>
+    :root {
+      --electric-blue: #00d2ff;
+      --neon-cyan: #00f2fe;
+      --neon-magenta: #ff007f;
+      --sunshine-yellow: #ffe600;
+      --emerald-green: #00f59b;
+      --neon-orange: #ff7b00;
+      --cosmic-purple: #7928ca;
+      --dark-space: #070913;
+      --card-bg: rgba(16, 24, 48, 0.88);
+      --card-border: rgba(0, 242, 254, 0.45);
+      --font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    body, html {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: var(--dark-space);
+      font-family: var(--font-family);
+      color: #ffffff;
+    }
+
+    #game-container {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      align-items: center;
+      background: radial-gradient(circle at center, #12193b 0%, #060814 100%);
+    }
+
+    /* Background and FX Canvases */
+    #bg-canvas, #fx-canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+
+    #bg-canvas { z-index: 1; }
+    #fx-canvas { z-index: 50; }
+
+    /* Hidden video element for MediaPipe stream input */
+    #webcam-video {
+      display: none;
+    }
+
+    /* Screen Layer System */
+    .screen {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 20;
+      padding: 24px;
+      text-align: center;
+      overflow-y: auto;
+    }
+
+    .screen.active {
+      display: flex;
+    }
+
+    /* Top HUD */
+    #hud {
+      position: absolute;
+      top: 14px;
+      left: 20px;
+      right: 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      z-index: 30;
+      pointer-events: none;
+    }
+
+    .hud-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .hud-badge {
+      background: rgba(13, 20, 41, 0.88);
+      border: 1.5px solid var(--electric-blue);
+      padding: 7px 16px;
+      border-radius: 20px;
+      box-shadow: 0 0 15px rgba(0, 210, 255, 0.3);
+      font-weight: 800;
+      font-size: 0.95rem;
+      letter-spacing: 0.5px;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+
+    .hud-title-logo {
+      font-size: 1.3rem;
+      font-weight: 900;
+      background: linear-gradient(90deg, var(--sunshine-yellow), var(--neon-cyan));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      text-shadow: 0 0 20px rgba(0, 242, 254, 0.4);
+    }
+
+    /* Webcam Picture-in-Picture Box */
+    #webcam-pip-container {
+      position: absolute;
+      top: 14px;
+      right: 20px;
+      width: 190px;
+      height: 140px;
+      border-radius: 16px;
+      overflow: hidden;
+      border: 2px solid var(--neon-cyan);
+      box-shadow: 0 0 25px rgba(0, 242, 254, 0.45);
+      background: #000;
+      z-index: 40;
+      display: flex;
+      flex-direction: column;
+      pointer-events: auto;
+    }
+
+    #pip-canvas {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .pip-badge {
+      position: absolute;
+      bottom: 6px;
+      left: 6px;
+      right: 6px;
+      background: rgba(0, 0, 0, 0.75);
+      border-radius: 8px;
+      padding: 3px 6px;
+      font-size: 0.68rem;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: #fff;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background-color: #ff3366;
+      box-shadow: 0 0 8px #ff3366;
+      display: inline-block;
+      margin-right: 5px;
+      transition: all 0.3s;
+    }
+
+    .status-dot.active {
+      background-color: var(--emerald-green);
+      box-shadow: 0 0 8px var(--emerald-green);
+    }
+
+    /* Floating Live Gesture Badge */
+    #gesture-status-floating {
+      position: absolute;
+      top: 160px;
+      right: 20px;
+      z-index: 40;
+      background: rgba(10, 16, 35, 0.92);
+      border: 1px solid var(--card-border);
+      padding: 6px 14px;
+      border-radius: 14px;
+      font-size: 0.75rem;
+      font-weight: 800;
+      letter-spacing: 0.5px;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+      color: var(--sunshine-yellow);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      pointer-events: none;
+    }
+
+    /* Game Arena */
+    #arena {
+      position: relative;
+      z-index: 25;
+      width: 92%;
+      max-width: 1080px;
+      height: 75vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      margin-top: 35px;
+    }
+
+    .mission-header-tag {
+      font-size: 1rem;
+      font-weight: 800;
+      color: var(--electric-blue);
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      margin-bottom: 4px;
+      text-shadow: 0 0 10px rgba(0, 210, 255, 0.6);
+    }
+
+    .question-prompt {
+      font-size: 1.55rem;
+      font-weight: 800;
+      color: #ffffff;
+      margin-bottom: 12px;
+      max-width: 850px;
+      text-shadow: 0 2px 10px rgba(0,0,0,0.8);
+      line-height: 1.3;
+    }
+
+    /* Hologram Target Stage */
+    .hologram-stage {
+      position: relative;
+      margin-bottom: 18px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .arabic-target {
+      font-size: 5.5rem;
+      font-weight: 900;
+      line-height: 1.2;
+      color: var(--sunshine-yellow);
+      text-shadow: 0 0 30px rgba(255, 230, 0, 0.8), 0 0 60px rgba(255, 230, 0, 0.4);
+      filter: drop-shadow(0 4px 15px rgba(0,0,0,0.9));
+      animation: floatLetter 3s ease-in-out infinite alternate;
+      direction: rtl;
+    }
+
+    @keyframes floatLetter {
+      0% { transform: translateY(0px) scale(1); }
+      100% { transform: translateY(-8px) scale(1.05); }
+    }
+
+    .feature-analogy-box {
+      background: rgba(121, 40, 202, 0.45);
+      border: 1px dashed var(--neon-cyan);
+      border-radius: 12px;
+      padding: 6px 18px;
+      font-size: 0.95rem;
+      color: #e2e8f0;
+      font-weight: 600;
+      margin-top: 4px;
+    }
+
+    /* Interactive Options Matrix */
+    .options-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 18px;
+      justify-content: center;
+      align-items: center;
+      width: 100%;
+      max-width: 950px;
+      margin-top: 8px;
+    }
+
+    .option-card {
+      background: var(--card-bg);
+      border: 2px solid var(--card-border);
+      border-radius: 20px;
+      padding: 18px 26px;
+      min-width: 165px;
+      min-height: 110px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      position: relative;
+      transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275), border-color 0.2s, box-shadow 0.2s;
+      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
+      direction: rtl;
+    }
+
+    .option-card .arabic-opt {
+      font-size: 3.3rem;
+      font-weight: 800;
+      color: #ffffff;
+      line-height: 1.1;
+      text-shadow: 0 0 15px rgba(255, 255, 255, 0.6);
+      pointer-events: none;
+    }
+
+    .option-card .label-opt {
+      font-size: 1.05rem;
+      font-weight: 700;
+      color: #d1d5db;
+      pointer-events: none;
+      text-align: center;
+      direction: ltr;
+    }
+
+    /* Highlight states for hover & pinch */
+    .option-card.targeted {
+      transform: scale(1.08) translateY(-6px);
+      border-color: var(--sunshine-yellow);
+      box-shadow: 0 0 35px rgba(255, 230, 0, 0.75);
+      background: rgba(30, 48, 96, 0.95);
+    }
+
+    .option-card.pinched {
+      transform: scale(0.96);
+      border-color: var(--neon-magenta);
+      box-shadow: 0 0 45px rgba(255, 0, 127, 0.9);
+    }
+
+    .option-card.correct-flash {
+      border-color: var(--emerald-green) !important;
+      background: rgba(0, 245, 155, 0.32) !important;
+      box-shadow: 0 0 55px rgba(0, 245, 155, 0.9) !important;
+    }
+
+    .option-card.wrong-flash {
+      border-color: var(--neon-magenta) !important;
+      background: rgba(255, 0, 127, 0.32) !important;
+      animation: shake 0.4s ease-in-out;
+    }
+
+    @keyframes shake {
+      0%, 100% { transform: translateX(0); }
+      20%, 60% { transform: translateX(-10px); }
+      40%, 80% { transform: translateX(10px); }
+    }
+
+    /* Bottom HUD Bar */
+    #bottom-bar {
+      position: absolute;
+      bottom: 12px;
+      left: 20px;
+      right: 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      z-index: 30;
+      pointer-events: auto;
+    }
+
+    .instruction-pill {
+      background: rgba(13, 20, 41, 0.88);
+      border: 1px solid rgba(0, 242, 254, 0.35);
+      padding: 8px 20px;
+      border-radius: 30px;
+      font-size: 0.92rem;
+      font-weight: 700;
+      color: #94a3b8;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .instruction-pill span.highlight {
+      color: var(--sunshine-yellow);
+      font-weight: 800;
+    }
+
+    .btn-group {
+      display: flex;
+      gap: 10px;
+    }
+
+    .neon-btn {
+      background: linear-gradient(135deg, rgba(23, 35, 71, 0.95), rgba(10, 17, 36, 0.95));
+      border: 1.5px solid var(--electric-blue);
+      color: #ffffff;
+      padding: 10px 22px;
+      border-radius: 25px;
+      font-size: 0.95rem;
+      font-weight: 800;
+      cursor: pointer;
+      box-shadow: 0 4px 15px rgba(0, 210, 255, 0.25);
+      transition: all 0.25s ease;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .neon-btn:hover, .neon-btn.targeted {
+      border-color: var(--sunshine-yellow);
+      color: var(--sunshine-yellow);
+      box-shadow: 0 0 25px rgba(255, 230, 0, 0.6);
+      transform: translateY(-2px);
+    }
+
+    .neon-btn.primary {
+      background: linear-gradient(135deg, #ff007f, #7928ca);
+      border-color: #ff007f;
+      font-size: 1.15rem;
+      padding: 14px 34px;
+      box-shadow: 0 0 25px rgba(255, 0, 127, 0.5);
+    }
+
+    .neon-btn.primary:hover, .neon-btn.primary.targeted {
+      box-shadow: 0 0 40px rgba(255, 0, 127, 0.85);
+      transform: scale(1.05);
+    }
+
+    /* Modal Feedback Dialogs */
+    .modal-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(3, 5, 14, 0.85);
+      backdrop-filter: blur(8px);
+      z-index: 100;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .modal-overlay.active {
+      display: flex;
+    }
+
+    .modal-card {
+      background: linear-gradient(145deg, #12193b, #090e22);
+      border: 2px solid var(--neon-cyan);
+      border-radius: 24px;
+      max-width: 650px;
+      width: 95%;
+      padding: 30px;
+      text-align: center;
+      box-shadow: 0 0 50px rgba(0, 242, 254, 0.4);
+      animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+
+    @keyframes popIn {
+      0% { transform: scale(0.8); opacity: 0; }
+      100% { transform: scale(1); opacity: 1; }
+    }
+
+    .modal-title {
+      font-size: 1.8rem;
+      font-weight: 900;
+      color: var(--sunshine-yellow);
+      margin-bottom: 12px;
+      text-shadow: 0 0 15px rgba(255, 230, 0, 0.6);
+    }
+
+    .modal-desc {
+      font-size: 1.05rem;
+      line-height: 1.6;
+      color: #e2e8f0;
+      margin-bottom: 22px;
+    }
+
+    /* Start Screen Content */
+    .title-banner {
+      margin-bottom: 25px;
+    }
+
+    .main-logo-text {
+      font-size: 4.2rem;
+      font-weight: 900;
+      letter-spacing: 3px;
+      background: linear-gradient(90deg, #ffe600, #00f2fe, #ff007f);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      text-shadow: 0 0 35px rgba(0, 242, 254, 0.5);
+      line-height: 1.1;
+    }
+
+    .sub-title-text {
+      font-size: 1.8rem;
+      font-weight: 800;
+      color: var(--electric-blue);
+      letter-spacing: 2px;
+      margin-top: 6px;
+      text-shadow: 0 0 15px rgba(0, 210, 255, 0.6);
+    }
+
+    .tagline-text {
+      font-size: 1.15rem;
+      font-weight: 700;
+      color: #cbd5e1;
+      margin-top: 8px;
+    }
+
+    .robot-mascot {
+      width: 110px;
+      height: 110px;
+      margin: 15px auto;
+      animation: floatLetter 2.5s ease-in-out infinite alternate;
+      filter: drop-shadow(0 0 20px var(--neon-cyan));
+    }
+
+    /* Revision Grid Container */
+    .revision-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 16px;
+      max-height: 58vh;
+      overflow-y: auto;
+      padding: 10px;
+      width: 100%;
+      max-width: 1000px;
+    }
+
+    .group-card {
+      background: rgba(16, 24, 48, 0.9);
+      border: 1.5px solid var(--electric-blue);
+      border-radius: 16px;
+      padding: 16px;
+      text-align: left;
+      cursor: pointer;
+      transition: all 0.25s ease;
+    }
+
+    .group-card:hover {
+      border-color: var(--sunshine-yellow);
+      transform: translateY(-3px);
+      box-shadow: 0 0 20px rgba(255, 230, 0, 0.4);
+    }
+
+    .group-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+
+    .group-name {
+      font-size: 1.1rem;
+      font-weight: 800;
+      color: var(--neon-cyan);
+    }
+
+    .group-letters-preview {
+      font-size: 2.2rem;
+      font-weight: 800;
+      color: var(--sunshine-yellow);
+      direction: rtl;
+    }
+
+    .group-feature {
+      font-size: 0.88rem;
+      color: #94a3b8;
+      line-height: 1.4;
+    }
+  </style>
+</head>
+<body>
+
+<div id="game-container">
+  <!-- Interactive & Background Canvases -->
+  <canvas id="bg-canvas"></canvas>
+  <canvas id="fx-canvas"></canvas>
+
+  <!-- Video stream element for webcam hand tracking -->
+  <video id="webcam-video" playsinline></video>
+
+  <!-- Top In-Game HUD -->
+  <div id="hud" style="display: none;">
+    <div class="hud-left">
+      <div class="hud-badge"><span class="hud-title-logo">MoPeHu-V1</span></div>
+      <div class="hud-badge">SKOR: <span id="hud-score" style="color: var(--sunshine-yellow);">0000</span></div>
+      <div class="hud-badge">MASA: <span id="hud-timer" style="color: var(--neon-cyan);">02:00</span></div>
+      <div class="hud-badge">NYAWA: <span id="hud-lives">❤️❤️❤️</span></div>
+      <div class="hud-badge">LEVEL: <span id="hud-level" style="color: var(--emerald-green);">1</span></div>
+      <div class="hud-badge">KOMBO: <span id="hud-combo" style="color: var(--neon-orange);">0</span></div>
+      <div class="hud-badge">BINTANG: <span id="hud-stars" style="color: var(--sunshine-yellow);">⭐ 0</span></div>
+    </div>
+  </div>
+
+  <!-- Webcam PIP Monitor Box -->
+  <div id="webcam-pip-container" style="display: none;">
+    <canvas id="pip-canvas"></canvas>
+    <div class="pip-badge">
+      <span><span id="pip-status-dot" class="status-dot"></span>KAMERA PEMAIN</span>
+      <span id="pip-fps-text">AKTIF</span>
+    </div>
+  </div>
+
+  <!-- Real-time Hand Gesture Floating Indicator -->
+  <div id="gesture-status-floating" style="display: none;">
+    <span>⚡ STATUS:</span>
+    <span id="gesture-text">MENCARI TANGAN...</span>
+  </div>
+
+  <!-- SCREEN 1: SPLASH & START MENU -->
+  <div id="screen-start" class="screen active">
+    <div class="title-banner">
+      <div class="main-logo-text">MoPeHu-V1</div>
+      <div class="sub-title-text">MISI KUASA HIJAIYAH</div>
+      <div class="tagline-text">"Kenali Bentuk, Kuasai Huruf!" • 28 Huruf, 10 Kelompok, Satu Misi!</div>
+    </div>
+
+    <!-- Friendly SVG Robot Mascot -->
+    <div class="robot-mascot">
+      <svg viewBox="0 0 100 100" width="100%" height="100%">
+        <circle cx="50" cy="50" r="40" fill="#0c1633" stroke="#00f2fe" stroke-width="4"/>
+        <!-- Antena -->
+        <line x1="50" y1="10" x2="50" y2="2" stroke="#ffe600" stroke-width="3"/>
+        <circle cx="50" cy="2" r="4" fill="#ff007f"/>
+        <!-- Face display -->
+        <rect x="25" y="32" width="50" height="34" rx="8" fill="#13234d" stroke="#00d2ff" stroke-width="2"/>
+        <!-- Friendly Eyes -->
+        <ellipse cx="38" cy="48" rx="6" ry="8" fill="#ffe600"/>
+        <ellipse cx="62" cy="48" rx="6" ry="8" fill="#ffe600"/>
+        <!-- Smile -->
+        <path d="M 40 58 Q 50 66 60 58" fill="transparent" stroke="#00f59b" stroke-width="3" stroke-linecap="round"/>
+        <!-- Cheeks -->
+        <circle cx="31" cy="54" r="3" fill="#ff007f" opacity="0.8"/>
+        <circle cx="69" cy="54" r="3" fill="#ff007f" opacity="0.8"/>
+      </svg>
+    </div>
+
+    <div style="max-width: 550px; background: rgba(13, 20, 41, 0.7); border: 1px solid var(--electric-blue); border-radius: 16px; padding: 14px 20px; margin-bottom: 25px;">
+      <p style="font-size: 0.95rem; color: #94a3b8; line-height: 1.5;">
+        Kawal kuasa angkasa dengan tangan anda! Halakan <b style="color:var(--neon-cyan);">jari telunjuk</b> sebagai penunjuk ajaib dan <b style="color:var(--sunshine-yellow);">cubit ibu jari + telunjuk</b> untuk memilih jawapan.
+      </p>
+    </div>
+
+    <div class="btn-group" style="flex-wrap: wrap; justify-content: center; gap: 14px;">
+      <button id="btn-start-mission" class="neon-btn primary">🚀 MULA MISI</button>
+      <button id="btn-how-to-play" class="neon-btn">📖 CARA BERMAIN</button>
+      <button id="btn-revision-mode" class="neon-btn">📚 MOD ULANG KAJI</button>
+      <button id="btn-sound-toggle" class="neon-btn">🔊 BUNYI: HIDUP</button>
+    </div>
+  </div>
+
+  <!-- SCREEN 2: ACTIVE GAMEPLAY ARENA -->
+  <div id="screen-game" class="screen">
+    <div id="arena">
+      <div id="mission-tag" class="mission-header-tag">MISI 1: KENALI HURUF</div>
+      <div id="question-text" class="question-prompt">Sentuh huruf Ba yang mempunyai bentuk seperti mangkuk!</div>
+
+      <!-- Hologram Target Stage -->
+      <div class="hologram-stage">
+        <div id="arabic-target-display" class="arabic-target">بَ</div>
+        <div id="analogy-display" class="feature-analogy-box">💡 Ciri: Pinggan/Mangkuk ada 1 titik di bawah</div>
+      </div>
+
+      <!-- Interactive Answer Options Matrix -->
+      <div id="options-container" class="options-grid">
+        <!-- Dynamically injected option cards -->
+      </div>
+    </div>
+
+    <!-- Bottom Controls & Hints -->
+    <div id="bottom-bar">
+      <div class="instruction-pill">
+        <span>🖐️ ARAHAN:</span>
+        <span id="instruction-action-text">Halakan jari telunjuk & <span class="highlight">cubit jari</span> untuk memilih!</span>
+      </div>
+      <div class="btn-group">
+        <button id="btn-hint" class="neon-btn">💡 PETUNJUK</button>
+        <button id="btn-game-sound" class="neon-btn">🔊 BUNYI</button>
+        <button id="btn-quit" class="neon-btn" style="border-color: #ff3366; color: #ff3366;">❌ KELUAR</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- SCREEN 3: REVISION / MOD ULANG KAJI -->
+  <div id="screen-revision" class="screen">
+    <div class="title-banner" style="margin-bottom: 12px;">
+      <div class="sub-title-text" style="font-size: 2.2rem; color: var(--sunshine-yellow);">📚 MOD ULANG KAJI 10 KELOMPOK</div>
+      <div class="tagline-text">Belajar bentuk visual huruf Hijaiyah tanpa had masa dan tanpa pengurangan nyawa.</div>
+    </div>
+
+    <div class="revision-grid" id="revision-cards-list">
+      <!-- Injected 10 groups from verified pedagogical database -->
+    </div>
+
+    <div style="margin-top: 18px;" class="btn-group">
+      <button id="btn-back-menu" class="neon-btn primary">🏠 KEMBALI KE MENU</button>
+    </div>
+  </div>
+
+  <!-- SCREEN 4: MISSION COMPLETE / VICTORY -->
+  <div id="screen-result" class="screen">
+    <div class="modal-card" style="max-width: 680px;">
+      <div class="modal-title" id="result-title">🎉 TAHNIAH, WIRA HIJAIYAH!</div>
+      <p style="color: #94a3b8; margin-bottom: 18px;" id="result-subtitle">Misi menguasai kelompok huruf Hijaiyah telah berjaya disempurnakan!</p>
+
+      <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 22px;">
+        <div class="hud-badge" style="justify-content: center; flex-direction: column; padding: 12px;">
+          <span style="font-size: 0.8rem; color:#94a3b8;">SKOR AKHIR</span>
+          <span id="res-score" style="font-size: 1.6rem; color: var(--sunshine-yellow);">0</span>
+        </div>
+        <div class="hud-badge" style="justify-content: center; flex-direction: column; padding: 12px;">
+          <span style="font-size: 0.8rem; color:#94a3b8;">KETEPATAN</span>
+          <span id="res-accuracy" style="font-size: 1.6rem; color: var(--emerald-green);">100%</span>
+        </div>
+        <div class="hud-badge" style="justify-content: center; flex-direction: column; padding: 12px;">
+          <span style="font-size: 0.8rem; color:#94a3b8;">BINTANG</span>
+          <span id="res-stars" style="font-size: 1.6rem; color: var(--sunshine-yellow);">⭐ 3</span>
+        </div>
+      </div>
+
+      <div style="background: rgba(0, 242, 254, 0.15); border: 1.5px solid var(--neon-cyan); border-radius: 16px; padding: 14px; margin-bottom: 22px;">
+        <div style="font-size: 0.9rem; color: #cbd5e1;">TAHAP PENGUASAAN PERMAINAN:</div>
+        <div id="res-rank" style="font-size: 1.7rem; font-weight: 900; color: var(--sunshine-yellow); margin-top: 4px;">MASTER MOPEHU!</div>
+      </div>
+
+      <div class="btn-group" style="justify-content: center; flex-wrap: wrap;">
+        <button id="btn-replay" class="neon-btn primary">🔄 MAIN SEMULA</button>
+        <button id="btn-result-revision" class="neon-btn">📖 ULANG KAJI</button>
+        <button id="btn-result-menu" class="neon-btn">🏠 MENU UTAMA</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- DIALOG MODAL: HOW TO PLAY -->
+  <div id="modal-instructions" class="modal-overlay">
+    <div class="modal-card">
+      <div class="modal-title">📖 CARA BERMAIN MOPEHU-V1</div>
+      <div class="modal-desc" style="text-align: left; font-size: 0.95rem;">
+        <p style="margin-bottom: 10px;">✨ <b>1. Kamera Ajaib:</b> Benarkan akses kamera web apabila diminta. Pastikan pencahayaan cukup dan tangan anda kelihatan.</p>
+        <p style="margin-bottom: 10px;">✨ <b>2. Kawalan Jari Telunjuk:</b> Angkat jari telunjuk anda. Pointer tenaga neon akan mengikuti pergerakan hujung jari anda secara langsung.</p>
+        <p style="margin-bottom: 10px;">✨ <b>3. Gestur Mencubit:</b> Rapatkan ibu jari dan jari telunjuk untuk memilih kad jawapan atau butang.</p>
+        <p style="margin-bottom: 10px;">✨ <b>4. 10 Kelompok Huruf:</b> Perhatikan bentuk persamaan huruf seperti garisan tegak, mangkuk berlekuk, perut buncit, dan ekor melengkung.</p>
+        <p style="margin-bottom: 10px;">✨ <b>5. Tetikus/Skrin Sentuh:</b> Jika berada di peranti tanpa kamera, klik atau sentuh kad jawapan secara langsung.</p>
+      </div>
+      <button id="btn-close-instructions" class="neon-btn primary" style="margin: 0 auto;">FAHAM & KEMBALI</button>
+    </div>
+  </div>
+
+  <!-- DIALOG MODAL: CAMERA PERMISSION & STATUS -->
+  <div id="modal-camera" class="modal-overlay">
+    <div class="modal-card">
+      <div class="modal-title" id="cam-modal-title">📷 MENGAKTIFKAN KUASA TANGAN...</div>
+      <div class="modal-desc" id="cam-modal-desc">
+        Sila benarkan akses webcam pada pelayar anda untuk membolehkan pengesanan gerak isyarat tangan berkuasa AI!
+      </div>
+      <div id="cam-spinner" style="font-size: 2rem; margin-bottom: 18px; animation: spin 1s infinite linear;">🌀</div>
+      <button id="btn-camera-cancel" class="neon-btn" style="margin: 0 auto;">BATAL</button>
+    </div>
+  </div>
+</div>
+
+<script>
+class SoundEngine {
+  constructor() {
+    this.ctx = null;
+    this.enabled = true;
+  }
+
+  init() {
+    if (!this.ctx) {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (AudioCtx) {
+        this.ctx = new AudioCtx();
+      }
+    }
+    if (this.ctx && this.ctx.state === 'suspended') {
+      this.ctx.resume();
+    }
+  }
+
+  toggle() {
+    this.enabled = !this.enabled;
+    return this.enabled;
+  }
+
+  playStart() {
+    if (!this.enabled || !this.ctx) return;
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(261.63, now); // C4
+    osc.frequency.exponentialRampToValueAtTime(523.25, now + 0.3); // C5
+    gain.gain.setValueAtTime(0.2, now);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.4);
+  }
+
+  playPinch() {
+    if (!this.enabled || !this.ctx) return;
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(440, now);
+    osc.frequency.exponentialRampToValueAtTime(880, now + 0.12);
+    gain.gain.setValueAtTime(0.25, now);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.15);
+  }
+
+  playCorrect() {
+    if (!this.enabled || !this.ctx) return;
+    const now = this.ctx.currentTime;
+    [523.25, 659.25, 783.99, 1046.50].forEach((freq, i) => {
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, now + i * 0.08);
+      gain.gain.setValueAtTime(0.18, now + i * 0.08);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + i * 0.08 + 0.25);
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+      osc.start(now + i * 0.08);
+      osc.stop(now + i * 0.08 + 0.25);
+    });
+  }
+
+  playWrong() {
+    if (!this.enabled || !this.ctx) return;
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(180, now);
+    osc.frequency.linearRampToValueAtTime(110, now + 0.25);
+    gain.gain.setValueAtTime(0.2, now);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.3);
+  }
+
+  playLevelUp() {
+    if (!this.enabled || !this.ctx) return;
+    const now = this.ctx.currentTime;
+    [330, 415, 554, 659, 830].forEach((freq, idx) => {
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(freq, now + idx * 0.07);
+      gain.gain.setValueAtTime(0.15, now + idx * 0.07);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + idx * 0.07 + 0.3);
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+      osc.start(now + idx * 0.07);
+      osc.stop(now + idx * 0.07 + 0.3);
+    });
+  }
+
+  playVictory() {
+    if (!this.enabled || !this.ctx) return;
+    const notes = [523.25, 659.25, 783.99, 1046.50, 1318.51];
+    notes.forEach((freq, idx) => {
+      const now = this.ctx.currentTime + idx * 0.12;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, now);
+      gain.gain.setValueAtTime(0.25, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.6);
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.6);
+    });
+  }
+
+  playGameOver() {
+    if (!this.enabled || !this.ctx) return;
+    const notes = [392, 349.23, 311.13, 261.63];
+    notes.forEach((freq, idx) => {
+      const now = this.ctx.currentTime + idx * 0.18;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(freq, now);
+      gain.gain.setValueAtTime(0.2, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.35);
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.35);
+    });
+  }
+}
+
+const sounds = new SoundEngine();
+
+const HIJAIYAH_GROUPS = [
+  {
+    id: 1,
+    name: "Kelompok 1: Garis Tegak",
+    letters: ["أَ", "لَ", "كَ"],
+    feature: "Garis tegak",
+    analogy: "Tiang bendera tegak (Alif), cangkuk bertiang (Lam), siku bertiang lurus (Kaf)."
+  },
+  {
+    id: 2,
+    name: "Kelompok 2: Bentuk Mangkuk",
+    letters: ["بَ", "تَ", "ثَ", "نَ"],
+    feature: "Bentuk mangkuk",
+    analogy: "Mangkuk/pinggan lebar bertitik bawah (Ba), dua mata (Ta), tiga titik (Tha), dan mangkuk bulat (Nun)."
+  },
+  {
+    id: 3,
+    name: "Kelompok 3: Ekor Pendek",
+    letters: ["دَ", "ذَ"],
+    feature: "Ekor pendek",
+    analogy: "Bentuk sudut dengan ekor pendek di bawah tanpa titik (Dal) dan bertitik lebah di atas (Dhal)."
+  },
+  {
+    id: 4,
+    name: "Kelompok 4: Ekor Panjang",
+    letters: ["رَ", "زَ", "وَ"],
+    feature: "Ekor panjang",
+    analogy: "Luncuran berekor panjang melengkung ke bawah (Ra), berlebah titik (Zai), dan berkepala bulat berlingkar (Wau)."
+  },
+  {
+    id: 5,
+    name: "Kelompok 5: Bentuk Perut Kembung",
+    letters: ["جَ", "حَ", "خَ"],
+    feature: "Bentuk perut kembung",
+    analogy: "Kepala ombak dengan perut kembung/buncit besar ke depan (Jim bertitik dalam perut, Ha kosong, Kha bertitik atas)."
+  },
+  {
+    id: 6,
+    name: "Kelompok 6: Bentuk Telinga",
+    letters: ["عَ", "غَ"],
+    feature: "Bentuk telinga",
+    analogy: "Kepala melengkung terbuka seperti cuping telinga atau paruh sotong (Ain) dan bertopi titik (Ghain)."
+  },
+  {
+    id: 7,
+    name: "Kelompok 7: Bentuk Mangkuk Berkepala Bulat",
+    letters: ["فَ", "قَ"],
+    feature: "Bentuk mangkuk berkepala bulat",
+    analogy: "Gelung kepala bulat berleher atas mangkuk leper (Fa) dan mangkuk dalam (Qaf)."
+  },
+  {
+    id: 8,
+    name: "Kelompok 8: Bentuk Berlekuk/Bergigi",
+    letters: ["سَ", "شَ"],
+    feature: "Bentuk berlekuk/bergigi",
+    analogy: "Gigi sikat berlekuk tiga rata (Sin) dan lekukan tiga gigi bertabur tiga bintang titik (Syin)."
+  },
+  {
+    id: 9,
+    name: "Kelompok 9: Badan Kepala Bujur",
+    letters: ["صَ", "ضَ", "طَ", "ظَ"],
+    feature: "Badan kepala bujur",
+    analogy: "Bentuk bujur condong seperti belon/mata (Sad, Dad) dan bujur bertangkai tegak seperti tomato (To, Zho)."
+  },
+  {
+    id: 10,
+    name: "Kelompok 10: Tiada Persamaan Visual",
+    letters: ["مَ", "هَ", "يَ"],
+    feature: "Tiada persamaan visual",
+    analogy: "Huruf unik bersendirian: topi tukang masak bersimpul (Mim), gelung bulat ketawa (Ha), dan itik berenang (Ya)."
+  }
+];
+
+const QUESTION_BANK = [
+  // LEVEL 1: Kenali Huruf Asas & Ciri Utama
+  {
+    level: 1,
+    type: "A",
+    missionTitle: "MISI 1: KENALI HURUF",
+    prompt: "Gunakan kuasa tangan! Sentuh huruf yang betul bagi sebutan 'Ba' (بَ) dari Kelompok 2!",
+    target: "بَ",
+    featureText: "💡 Kelompok 2: Bentuk mangkuk dengan 1 titik di bawah.",
+    options: [
+      { text: "بَ", label: "Ba", correct: true },
+      { text: "تَ", label: "Ta", correct: false },
+      { text: "ثَ", label: "Tha", correct: false }
+    ],
+    hint: "Huruf Ba mempunyai bentuk mangkuk dengan 1 titik di bawah."
+  },
+  {
+    level: 1,
+    type: "A",
+    missionTitle: "MISI 1: KENALI HURUF",
+    prompt: "Cari huruf 'Dal' (دَ) dari Kelompok 3 yang mempunyai ciri 'Ekor pendek'!",
+    target: "دَ",
+    featureText: "💡 Kelompok 3: Ciri visual 'Ekor pendek'.",
+    options: [
+      { text: "رَ", label: "Ra (Ekor panjang)", correct: false },
+      { text: "دَ", label: "Dal (Ekor pendek)", correct: true },
+      { text: "جَ", label: "Jim (Perut kembung)", correct: false }
+    ],
+    hint: "Dal mempunyai bukaan sudut berleher dan ekor yang pendek."
+  },
+  {
+    level: 1,
+    type: "A",
+    missionTitle: "MISI 1: KENALI HURUF",
+    prompt: "Pilih huruf 'Alif' (أَ) dari Kelompok 1 yang mempunyai ciri 'Garis tegak'!",
+    target: "أَ",
+    featureText: "💡 Kelompok 1: Ciri visual 'Garis tegak'.",
+    options: [
+      { text: "أَ", label: "Alif", correct: true },
+      { text: "لَ", label: "Lam", correct: false },
+      { text: "وَ", label: "Wau", correct: false }
+    ],
+    hint: "Alif berdiri lurus tegak ke atas."
+  },
+
+  // LEVEL 2: Detektif Bentuk & Pasangan Kelompok
+  {
+    level: 2,
+    type: "B",
+    missionTitle: "MISI 2: DETEKTIF BENTUK",
+    prompt: "Huruf sasaran ialah 'Alif' (أَ). Huruf manakah yang berkongsi ciri 'Garis tegak' dalam Kelompok 1?",
+    target: "أَ",
+    featureText: "💡 Kelompok 1: Garis tegak (أَ ، لَ ، كَ).",
+    options: [
+      { text: "كَ", label: "Kaf (Garis tegak bertangkai)", correct: true },
+      { text: "بَ", label: "Ba (Bentuk mangkuk)", correct: false },
+      { text: "سَ", label: "Sin (Bentuk berlekuk/bergigi)", correct: false }
+    ],
+    hint: "Kaf dan Lam tergolong dalam Kelompok 1 kerana mempunyai garis tegak."
+  },
+  {
+    level: 2,
+    type: "B",
+    missionTitle: "MISI 2: DETEKTIF BENTUK",
+    prompt: "Huruf sasaran ialah 'Jim' (جَ). Huruf manakah yang berkongsi ciri 'Bentuk perut kembung'?",
+    target: "جَ",
+    featureText: "💡 Kelompok 5: Bentuk perut kembung (جَ ، حَ ، خَ).",
+    options: [
+      { text: "حَ", label: "Ha (Perut kembung licin)", correct: true },
+      { text: "دَ", label: "Dal (Ekor pendek)", correct: false },
+      { text: "صَ", label: "Sad (Badan kepala bujur)", correct: false }
+    ],
+    hint: "Ha dan Kha mempunyai badan dan perut kembung yang sama seperti Jim."
+  },
+  {
+    level: 2,
+    type: "B",
+    missionTitle: "MISI 2: DETEKTIF BENTUK",
+    prompt: "Huruf sasaran ialah 'Ain' (عَ). Huruf apakah yang berkongsi ciri 'Bentuk telinga' dalam Kelompok 6?",
+    target: "عَ",
+    featureText: "💡 Kelompok 6: Bentuk telinga (عَ ، غَ).",
+    options: [
+      { text: "غَ", label: "Ghain", correct: true },
+      { text: "فَ", label: "Fa", correct: false },
+      { text: "قَ", label: "Qaf", correct: false }
+    ],
+    hint: "Kelompok 6 mengandungi pasangan Ain dan Ghain yang menyerupai cuping telinga."
+  },
+
+  // LEVEL 3: Pakar Ciri Visual
+  {
+    level: 3,
+    type: "C",
+    missionTitle: "MISI 3: PAKAR CIRI VISUAL",
+    prompt: "Perhatikan huruf [ بَ ، تَ ، ثَ ، نَ ]. Apakah ciri visual utama kelompok ini?",
+    target: "بَ تَ ثَ نَ",
+    featureText: "💡 Kelompok 2: بَ ، تَ ، ثَ ، نَ",
+    options: [
+      { text: "🥣", label: "Bentuk mangkuk", correct: true },
+      { text: "📏", label: "Garis tegak", correct: false },
+      { text: "👂", label: "Bentuk telinga", correct: false }
+    ],
+    hint: "Huruf Ba, Ta, Tha dan Nun semuanya berkongsi 'Bentuk mangkuk'."
+  },
+  {
+    level: 3,
+    type: "C",
+    missionTitle: "MISI 3: PAKAR CIRI VISUAL",
+    prompt: "Huruf [ رَ ، زَ ، وَ ] berada dalam Kelompok 4. Apakah ciri visual utama mereka?",
+    target: "رَ زَ وَ",
+    featureText: "💡 Kelompok 4: رَ ، زَ ، وَ",
+    options: [
+      { text: "📐", label: "Ekor panjang", correct: true },
+      { text: "🥢", label: "Ekor pendek", correct: false },
+      { text: "🎈", label: "Badan kepala bujur", correct: false }
+    ],
+    hint: "Ketiga-tiga huruf meluncur ke bawah dengan ciri 'Ekor panjang'."
+  },
+  {
+    level: 3,
+    type: "C",
+    missionTitle: "MISI 3: PAKAR CIRI VISUAL",
+    prompt: "Apakah ciri visual utama bagi huruf [ سَ ، شَ ] dalam Kelompok 8?",
+    target: "سَ شَ",
+    featureText: "💡 Kelompok 8: سَ ، شَ",
+    options: [
+      { text: "🦷", label: "Bentuk berlekuk/bergigi", correct: true },
+      { text: "🥣", label: "Bentuk mangkuk berkepala bulat", correct: false },
+      { text: "🫃", label: "Bentuk perut kembung", correct: false }
+    ],
+    hint: "Sin dan Syin mempunyai tiga lekuk runcing seperti gigi sikat."
+  },
+
+  // LEVEL 4: Kuasa Fathah & Pengelompokan Khas
+  {
+    level: 4,
+    type: "C",
+    missionTitle: "MISI 4: CIRI VISUAL",
+    prompt: "Huruf [ صَ ، ضَ ، طَ ، ظَ ] berada dalam Kelompok 9. Apakah ciri visual utama mereka?",
+    target: "صَ ضَ طَ ظَ",
+    featureText: "💡 Kelompok 9: صَ ، ضَ ، طَ ، ظَ",
+    options: [
+      { text: "🥚", label: "Badan kepala bujur", correct: true },
+      { text: "📏", label: "Garis tegak", correct: false },
+      { text: "👂", label: "Bentuk telinga", correct: false }
+    ],
+    hint: "Sad, Dad, To dan Zho mempunyai badan kepala berbentuk bujur."
+  },
+  {
+    level: 4,
+    type: "B",
+    missionTitle: "MISI 4: DETEKTIF BENTUK",
+    prompt: "Huruf manakah pasangan bagi 'Fa' (فَ) yang mempunyai ciri 'Bentuk mangkuk berkepala bulat'?",
+    target: "فَ",
+    featureText: "💡 Kelompok 7: Bentuk mangkuk berkepala bulat (فَ ، قَ).",
+    options: [
+      { text: "قَ", label: "Qaf", correct: true },
+      { text: "مَ", label: "Mim", correct: false },
+      { text: "وَ", label: "Wau", correct: false }
+    ],
+    hint: "Fa dan Qaf berkongsi kepala bulat di atas badan mangkuk."
+  },
+
+  // LEVEL 5: Master MoPeHu Cabaran 10 Kelompok
+  {
+    level: 5,
+    type: "F",
+    missionTitle: "MISI 5: MASTER MOPEHU",
+    prompt: "Huruf [ مَ ، هَ ، يَ ] berada dalam Kelompok 10. Apakah ciri visual utama mereka?",
+    target: "مَ هَ يَ",
+    featureText: "💡 Kelompok 10: Huruf unik tanpa pasangan bentuk sepunya.",
+    options: [
+      { text: "✨", label: "Tiada persamaan visual", correct: true },
+      { text: "🥣", label: "Bentuk mangkuk", correct: false },
+      { text: "📏", label: "Garis tegak", correct: false }
+    ],
+    hint: "Kelompok 10 terdiri daripada huruf yang 'Tiada persamaan visual'."
+  },
+  {
+    level: 5,
+    type: "F",
+    missionTitle: "MISI 5: MASTER MOPEHU",
+    prompt: "Apakah perbezaan ciri visual utama antara Kelompok 3 [ دَ ، ذَ ] dan Kelompok 4 [ رَ ، زَ ، وَ ]?",
+    target: "دَ VS رَ",
+    featureText: "💡 Perbezaan panjang ekor melengkung di bahagian bawah.",
+    options: [
+      { text: "📏", label: "Kelompok 3: Ekor pendek, Kelompok 4: Ekor panjang", correct: true },
+      { text: "🥣", label: "Kelompok 3: Bentuk mangkuk, Kelompok 4: Garis tegak", correct: false },
+      { text: "👂", label: "Kelompok 3: Bentuk telinga, Kelompok 4: Perut kembung", correct: false }
+    ],
+    hint: "Kelompok 3 (د ، ذ) mempunyai 'Ekor pendek', manakala Kelompok 4 (ر ، ز ، و) mempunyai 'Ekor panjang'."
+  }
+];
+
+class ParticleEngine {
+  constructor(bgCanvas, fxCanvas) {
+    this.bgCanvas = bgCanvas;
+    this.bgCtx = bgCanvas.getContext('2d');
+    this.fxCanvas = fxCanvas;
+    this.fxCtx = fxCanvas.getContext('2d');
+    
+    this.stars = [];
+    this.particles = [];
+    this.confetti = [];
+    this.energyTrail = [];
+    this.shockwaves = [];
+    
+    this.resize();
+    window.addEventListener('resize', () => this.resize());
+    this.initStars();
+  }
+
+  resize() {
+    this.width = window.innerWidth;
+    this.height = window.innerHeight;
+    this.bgCanvas.width = this.width;
+    this.bgCanvas.height = this.height;
+    this.fxCanvas.width = this.width;
+    this.fxCanvas.height = this.height;
+  }
+
+  initStars() {
+    this.stars = [];
+    const count = 120;
+    for (let i = 0; i < count; i++) {
+      this.stars.push({
+        x: Math.random() * this.width,
+        y: Math.random() * this.height,
+        radius: Math.random() * 1.8 + 0.4,
+        alpha: Math.random() * 0.8 + 0.2,
+        speed: Math.random() * 0.3 + 0.1
+      });
+    }
+  }
+
+  addTrail(x, y) {
+    this.energyTrail.push({
+      x, y,
+      radius: 14,
+      alpha: 0.9,
+      hue: (Date.now() / 15) % 360
+    });
+    if (this.energyTrail.length > 25) {
+      this.energyTrail.shift();
+    }
+  }
+
+  addShockwave(x, y, color = '#00f2fe') {
+    this.shockwaves.push({
+      x, y,
+      radius: 5,
+      maxRadius: 80,
+      alpha: 1,
+      color
+    });
+  }
+
+  createBurst(x, y, count = 28, color = '#00f59b') {
+    for (let i = 0; i < count; i++) {
+      const angle = (Math.PI * 2 * i) / count + (Math.random() - 0.5);
+      const speed = Math.random() * 5 + 2;
+      this.particles.push({
+        x, y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        radius: Math.random() * 4 + 2,
+        alpha: 1,
+        color
+      });
+    }
+  }
+
+  createConfetti() {
+    const colors = ['#00f2fe', '#ffe600', '#ff007f', '#00f59b', '#7928ca'];
+    for (let i = 0; i < 120; i++) {
+      this.confetti.push({
+        x: Math.random() * this.width,
+        y: -10,
+        vx: (Math.random() - 0.5) * 4,
+        vy: Math.random() * 4 + 2,
+        size: Math.random() * 8 + 5,
+        rotation: Math.random() * Math.PI,
+        rotationSpeed: (Math.random() - 0.5) * 0.1,
+        color: colors[Math.floor(Math.random() * colors.length)],
+        alpha: 1
+      });
+    }
+  }
+
+  updateAndRender() {
+    // 1. Render Background Stars & Nebula
+    this.bgCtx.clearRect(0, 0, this.width, this.height);
+    this.bgCtx.fillStyle = '#ffffff';
+    for (const star of this.stars) {
+      star.y += star.speed;
+      if (star.y > this.height) star.y = 0;
+      this.bgCtx.globalAlpha = star.alpha;
+      this.bgCtx.beginPath();
+      this.bgCtx.arc(star.x, star.y, star.radius, 0, Math.PI * 2);
+      this.bgCtx.fill();
+    }
+    this.bgCtx.globalAlpha = 1;
+
+    // 2. Render FX Canvas (Particles, Trails, Telekinesis Rings)
+    this.fxCtx.clearRect(0, 0, this.width, this.height);
+
+    // Render Energy Trail
+    for (let i = 0; i < this.energyTrail.length; i++) {
+      const p = this.energyTrail[i];
+      p.alpha -= 0.03;
+      p.radius *= 0.95;
+      if (p.alpha > 0) {
+        this.fxCtx.save();
+        this.fxCtx.globalAlpha = p.alpha;
+        this.fxCtx.shadowColor = `hsl(${p.hue}, 100%, 50%)`;
+        this.fxCtx.shadowBlur = 15;
+        this.fxCtx.fillStyle = `hsl(${p.hue}, 100%, 75%)`;
+        this.fxCtx.beginPath();
+        this.fxCtx.arc(p.x, p.y, Math.max(1, p.radius), 0, Math.PI * 2);
+        this.fxCtx.fill();
+        this.fxCtx.restore();
+      }
+    }
+    this.energyTrail = this.energyTrail.filter(p => p.alpha > 0);
+
+    // Render Shockwaves
+    for (const wave of this.shockwaves) {
+      wave.radius += 4;
+      wave.alpha -= 0.04;
+      if (wave.alpha > 0) {
+        this.fxCtx.save();
+        this.fxCtx.globalAlpha = wave.alpha;
+        this.fxCtx.strokeStyle = wave.color;
+        this.fxCtx.lineWidth = 4;
+        this.fxCtx.shadowColor = wave.color;
+        this.fxCtx.shadowBlur = 20;
+        this.fxCtx.beginPath();
+        this.fxCtx.arc(wave.x, wave.y, wave.radius, 0, Math.PI * 2);
+        this.fxCtx.stroke();
+        this.fxCtx.restore();
+      }
+    }
+    this.shockwaves = this.shockwaves.filter(w => wave => w.alpha > 0);
+
+    // Render Burst Particles
+    for (const pt of this.particles) {
+      pt.x += pt.vx;
+      pt.y += pt.vy;
+      pt.alpha -= 0.025;
+      if (pt.alpha > 0) {
+        this.fxCtx.save();
+        this.fxCtx.globalAlpha = pt.alpha;
+        this.fxCtx.fillStyle = pt.color;
+        this.fxCtx.shadowColor = pt.color;
+        this.fxCtx.shadowBlur = 10;
+        this.fxCtx.beginPath();
+        this.fxCtx.arc(pt.x, pt.y, pt.radius, 0, Math.PI * 2);
+        this.fxCtx.fill();
+        this.fxCtx.restore();
+      }
+    }
+    this.particles = this.particles.filter(pt => pt.alpha > 0);
+
+    // Render Confetti
+    for (const c of this.confetti) {
+      c.x += c.vx;
+      c.y += c.vy;
+      c.rotation += c.rotationSpeed;
+      if (c.y < this.height + 20) {
+        this.fxCtx.save();
+        this.fxCtx.translate(c.x, c.y);
+        this.fxCtx.rotate(c.rotation);
+        this.fxCtx.fillStyle = c.color;
+        this.fxCtx.fillRect(-c.size / 2, -c.size / 2, c.size, c.size * 0.6);
+        this.fxCtx.restore();
+      }
+    }
+    this.confetti = this.confetti.filter(c => c.y < this.height + 20);
+  }
+
+  // Draw Glowing Hand Pointer Orb on Canvas
+  drawPointer(x, y, isPinching) {
+    this.fxCtx.save();
+    const glowColor = isPinching ? '#ff007f' : '#00f2fe';
+    this.fxCtx.shadowColor = glowColor;
+    this.fxCtx.shadowBlur = isPinching ? 35 : 20;
+    
+    // Outer pulsator
+    this.fxCtx.strokeStyle = glowColor;
+    this.fxCtx.lineWidth = 3;
+    this.fxCtx.beginPath();
+    this.fxCtx.arc(x, y, isPinching ? 18 : 26, 0, Math.PI * 2);
+    this.fxCtx.stroke();
+
+    // Inner glowing core
+    this.fxCtx.fillStyle = isPinching ? '#ffe600' : '#ffffff';
+    this.fxCtx.beginPath();
+    this.fxCtx.arc(x, y, isPinching ? 8 : 10, 0, Math.PI * 2);
+    this.fxCtx.fill();
+    this.fxCtx.restore();
+  }
+}
+
+class HandTracker {
+  constructor(onHandData) {
+    this.video = document.getElementById('webcam-video');
+    this.pipCanvas = document.getElementById('pip-canvas');
+    this.pipCtx = this.pipCanvas.getContext('2d');
+    this.onHandData = onHandData;
+    
+    this.hands = null;
+    this.camera = null;
+    this.stream = null;
+    this.isRunning = false;
+    this.isProcessingFrame = false;
+
+    // Smoothed pointer coordinates
+    this.pointerX = window.innerWidth / 2;
+    this.pointerY = window.innerHeight / 2;
+    this.smoothFactor = 0.28;
+
+    // Pinch state and debounce
+    this.isPinching = false;
+    this.lastPinchTime = 0;
+    this.pinchDebounceMs = 380;
+  }
+
+  async start() {
+    try {
+      this.stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          width: { ideal: 640 },
+          height: { ideal: 480 },
+          facingMode: "user"
+        },
+        audio: false
+      });
+      this.video.srcObject = this.stream;
+      await this.video.play();
+
+      this.pipCanvas.width = 320;
+      this.pipCanvas.height = 240;
+
+      // Initialize MediaPipe Hands with exact pinned version matching CDN script
+      if (typeof Hands === 'undefined') {
+        throw new Error("Pustaka MediaPipe Hands belum selesai dimuatkan.");
+      }
+
+      const MP_VERSION = "0.4.1675469240";
+      this.hands = new Hands({
+        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands@${MP_VERSION}/${file}`
+      });
+
+      this.hands.setOptions({
+        maxNumHands: 1,
+        modelComplexity: 1,
+        minDetectionConfidence: 0.55,
+        minTrackingConfidence: 0.5
+      });
+
+      this.hands.onResults((results) => this.onResults(results));
+
+      // CRITICAL: Explicitly await initialize() so WASM binary & model assets
+      // are completely mounted before camera frames are sent to prevent Assertion failed aborts
+      if (typeof this.hands.initialize === 'function') {
+        await this.hands.initialize();
+      }
+
+      this.isProcessingFrame = false;
+      this.camera = new Camera(this.video, {
+        onFrame: async () => {
+          // Concurrency lock prevents overlapping inference calls on the WASM runtime
+          if (this.isRunning && this.video.readyState >= 2 && !this.isProcessingFrame) {
+            this.isProcessingFrame = true;
+            try {
+              await this.hands.send({ image: this.video });
+            } catch (frameErr) {
+              console.warn("MediaPipe frame skipped:", frameErr);
+            } finally {
+              this.isProcessingFrame = false;
+            }
+          }
+        },
+        width: 640,
+        height: 480
+      });
+
+      await this.camera.start();
+      this.isRunning = true;
+      return true;
+    } catch (err) {
+      console.error("Webcam / MediaPipe Init Error:", err);
+      this.stop();
+      return false;
+    }
+  }
+
+  stop() {
+    this.isRunning = false;
+    this.isProcessingFrame = false;
+    if (this.camera) {
+      try { this.camera.stop(); } catch (e) {}
+    }
+    if (this.stream) {
+      this.stream.getTracks().forEach(track => track.stop());
+      this.stream = null;
+    }
+  }
+
+  onResults(results) {
+    // 1. Draw Mirror Video to PIP Monitor Box
+    this.pipCtx.save();
+    this.pipCtx.clearRect(0, 0, this.pipCanvas.width, this.pipCanvas.height);
+    this.pipCtx.translate(this.pipCanvas.width, 0);
+    this.pipCtx.scale(-1, 1);
+    this.pipCtx.drawImage(results.image, 0, 0, this.pipCanvas.width, this.pipCanvas.height);
+
+    let handDetected = false;
+    let pinchTriggered = false;
+    let isCurrentlyPinching = false;
+
+    if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+      handDetected = true;
+      const landmarks = results.multiHandLandmarks[0];
+
+      // Draw skeleton on PIP preview
+      this.drawPipSkeleton(landmarks);
+
+      // Landmark 8: Index Tip, Landmark 4: Thumb Tip
+      const indexTip = landmarks[8];
+      const thumbTip = landmarks[4];
+
+      // Mirror mapping: X is inverted (1 - x) to match mirror view
+      const targetScreenX = (1 - indexTip.x) * window.innerWidth;
+      const targetScreenY = indexTip.y * window.innerHeight;
+
+      // Exponential smoothing interpolation
+      this.pointerX += (targetScreenX - this.pointerX) * this.smoothFactor;
+      this.pointerY += (targetScreenY - this.pointerY) * this.smoothFactor;
+
+      // Euclidean distance in normalized coordinate space
+      const dx = (thumbTip.x - indexTip.x);
+      const dy = (thumbTip.y - indexTip.y);
+      const pinchDistance = Math.hypot(dx, dy);
+
+      // Pinch Threshold: typically < 0.075 indicates thumb and index touching
+      const pinchThreshold = 0.082;
+      const now = Date.now();
+
+      if (pinchDistance < pinchThreshold) {
+        isCurrentlyPinching = true;
+        if (!this.isPinching && (now - this.lastPinchTime > this.pinchDebounceMs)) {
+          pinchTriggered = true;
+          this.lastPinchTime = now;
+        }
+        this.isPinching = true;
+      } else {
+        this.isPinching = false;
+      }
+    }
+
+    this.pipCtx.restore();
+
+    // Propagate gesture data to game controller
+    if (this.onHandData) {
+      this.onHandData({
+        detected: handDetected,
+        x: this.pointerX,
+        y: this.pointerY,
+        isPinching: isCurrentlyPinching,
+        pinchTriggered: pinchTriggered
+      });
+    }
+  }
+
+  drawPipSkeleton(landmarks) {
+    const ctx = this.pipCtx;
+    ctx.strokeStyle = '#00f2fe';
+    ctx.lineWidth = 2;
+    ctx.fillStyle = '#ff007f';
+
+    // Highlight Index tip & Thumb tip
+    const drawLandmark = (lm, color, r = 4) => {
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(lm.x * this.pipCanvas.width, lm.y * this.pipCanvas.height, r, 0, Math.PI * 2);
+      ctx.fill();
+    };
+
+    drawLandmark(landmarks[8], '#00f59b', 6); // Index tip
+    drawLandmark(landmarks[4], '#ffe600', 6); // Thumb tip
+
+    // Connecting line between Thumb tip and Index tip
+    ctx.beginPath();
+    ctx.moveTo(landmarks[4].x * this.pipCanvas.width, landmarks[4].y * this.pipCanvas.height);
+    ctx.lineTo(landmarks[8].x * this.pipCanvas.width, landmarks[8].y * this.pipCanvas.height);
+    ctx.stroke();
+  }
+}
+
+class MoPeHuGame {
+  constructor() {
+    this.score = 0;
+    this.lives = 3;
+    this.level = 1;
+    this.combo = 0;
+    this.stars = 0;
+    this.timeLeft = 120;
+    this.timerInterval = null;
+    this.currentQuestionIdx = 0;
+    this.activeQuestions = [];
+    this.isGameActive = false;
+    this.inRevisionMode = false;
+    
+    this.stats = {
+      correctCount: 0,
+      wrongCount: 0
+    };
+
+    // DOM Elements
+    this.dom = {
+      screenStart: document.getElementById('screen-start'),
+      screenGame: document.getElementById('screen-game'),
+      screenRevision: document.getElementById('screen-revision'),
+      screenResult: document.getElementById('screen-result'),
+      hud: document.getElementById('hud'),
+      webcamPip: document.getElementById('webcam-pip-container'),
+      pipStatusDot: document.getElementById('pip-status-dot'),
+      gestureFloating: document.getElementById('gesture-status-floating'),
+      gestureText: document.getElementById('gesture-text'),
+      
+      hudScore: document.getElementById('hud-score'),
+      hudTimer: document.getElementById('hud-timer'),
+      hudLives: document.getElementById('hud-lives'),
+      hudLevel: document.getElementById('hud-level'),
+      hudCombo: document.getElementById('hud-combo'),
+      hudStars: document.getElementById('hud-stars'),
+      
+      missionTag: document.getElementById('mission-tag'),
+      questionText: document.getElementById('question-text'),
+      arabicTarget: document.getElementById('arabic-target-display'),
+      analogyDisplay: document.getElementById('analogy-display'),
+      optionsContainer: document.getElementById('options-container'),
+      
+      modalInstructions: document.getElementById('modal-instructions'),
+      modalCamera: document.getElementById('modal-camera'),
+      camModalTitle: document.getElementById('cam-modal-title'),
+      camModalDesc: document.getElementById('cam-modal-desc'),
+      camSpinner: document.getElementById('cam-spinner'),
+      
+      revisionList: document.getElementById('revision-cards-list')
+    };
+
+    // Canvas Graphics
+    const bgCanvas = document.getElementById('bg-canvas');
+    const fxCanvas = document.getElementById('fx-canvas');
+    this.particles = new ParticleEngine(bgCanvas, fxCanvas);
+
+    // Hand Tracking Engine
+    this.tracker = new HandTracker((handData) => this.handleHandInput(handData));
+
+    // Pointer state
+    this.currentPointer = { x: window.innerWidth / 2, y: window.innerHeight / 2, isPinching: false };
+
+    this.bindEvents();
+    this.renderRevisionCards();
+    this.startAnimationLoop();
+  }
+
+  bindEvents() {
+    // Menu Buttons
+    document.getElementById('btn-start-mission').addEventListener('click', () => this.requestStartGame());
+    document.getElementById('btn-how-to-play').addEventListener('click', () => {
+      sounds.init();
+      this.dom.modalInstructions.classList.add('active');
+    });
+    document.getElementById('btn-close-instructions').addEventListener('click', () => {
+      this.dom.modalInstructions.classList.remove('active');
+    });
+    document.getElementById('btn-revision-mode').addEventListener('click', () => this.openRevisionScreen());
+    document.getElementById('btn-back-menu').addEventListener('click', () => this.showScreen('start'));
+    
+    // Sound Toggles
+    const toggleAudio = (btnId) => {
+      sounds.init();
+      const enabled = sounds.toggle();
+      const text = enabled ? "🔊 BUNYI: HIDUP" : "🔇 BUNYI: PADAM";
+      document.getElementById('btn-sound-toggle').innerText = text;
+      document.getElementById('btn-game-sound').innerText = enabled ? "🔊 BUNYI" : "🔇 BUNYI";
+    };
+    document.getElementById('btn-sound-toggle').addEventListener('click', () => toggleAudio());
+    document.getElementById('btn-game-sound').addEventListener('click', () => toggleAudio());
+
+    // In-Game Buttons
+    document.getElementById('btn-hint').addEventListener('click', () => this.showHint());
+    document.getElementById('btn-quit').addEventListener('click', () => this.endGameSession(false));
+
+    // Result Buttons
+    document.getElementById('btn-replay').addEventListener('click', () => this.requestStartGame());
+    document.getElementById('btn-result-revision').addEventListener('click', () => this.openRevisionScreen());
+    document.getElementById('btn-result-menu').addEventListener('click', () => this.showScreen('start'));
+
+    // Camera Cancel
+    document.getElementById('btn-camera-cancel').addEventListener('click', () => {
+      this.tracker.stop();
+      this.dom.modalCamera.classList.remove('active');
+    });
+
+    // Fallback Mouse / Touch Events (Permits instant testing on any desktop/mobile)
+    window.addEventListener('mousemove', (e) => {
+      if (!this.tracker.isRunning) {
+        this.currentPointer.x = e.clientX;
+        this.currentPointer.y = e.clientY;
+      }
+    });
+
+    window.addEventListener('click', (e) => {
+      if (!this.tracker.isRunning && this.isGameActive) {
+        this.checkClickInteractions(e.clientX, e.clientY);
+      }
+    });
+  }
+
+  showScreen(screenKey) {
+    ['start', 'game', 'revision', 'result'].forEach(k => {
+      const el = document.getElementById(`screen-${k}`);
+      if (el) el.classList.remove('active');
+    });
+
+    if (screenKey === 'game') {
+      this.dom.screenGame.classList.add('active');
+      this.dom.hud.style.display = 'flex';
+      this.dom.webcamPip.style.display = 'flex';
+      this.dom.gestureFloating.style.display = 'flex';
+    } else {
+      const el = document.getElementById(`screen-${screenKey}`);
+      if (el) el.classList.add('active');
+      this.dom.hud.style.display = 'none';
+      if (screenKey === 'start' || screenKey === 'result') {
+        this.dom.webcamPip.style.display = 'none';
+        this.dom.gestureFloating.style.display = 'none';
+      }
+    }
+  }
+
+  async requestStartGame() {
+    sounds.init();
+    this.dom.camModalTitle.innerText = "📷 MEMULAKAN WEBCAM...";
+    this.dom.camModalDesc.innerText = "Sila benarkan akses kamera untuk mengaktifkan kuasa telekinesis tangan anda!";
+    this.dom.camSpinner.style.display = "block";
+    this.dom.modalCamera.classList.add('active');
+
+    let started = false;
+    try {
+      started = await this.tracker.start();
+    } catch (e) {
+      console.warn("Gagal memulakan pengesan tangan AI:", e);
+      started = false;
+    }
+
+    if (!started) {
+      this.dom.camModalTitle.innerText = "⚠️ MOD INTERAKTIF DIAKTIFKAN";
+      this.dom.camModalDesc.innerText = "Kamera web tidak dapat diakses atau GPU tidak menyokong WebAssembly SIMD. Permainan kini boleh dimainkan serta-merta menggunakan tetikus atau skrin sentuh!";
+      this.dom.camSpinner.style.display = "none";
+      setTimeout(() => {
+        this.dom.modalCamera.classList.remove('active');
+        this.launchGame();
+      }, 1500);
+      return;
+    }
+
+    this.dom.camModalTitle.innerText = "🖐️ TAHAN TANGAN DI HADAPAN KAMERA";
+    this.dom.camModalDesc.innerText = "Mengesan tangan anda untuk memulakan misi...";
+    
+    // Wait for first hand detection or 2.5 seconds timeout
+    let waitTimer = 0;
+    const interval = setInterval(() => {
+      waitTimer += 200;
+      if (this.currentPointer.detected || waitTimer > 2500) {
+        clearInterval(interval);
+        this.dom.modalCamera.classList.remove('active');
+        this.launchGame();
+      }
+    }, 200);
+  }
+
+  launchGame() {
+    this.score = 0;
+    this.lives = 3;
+    this.level = 1;
+    this.combo = 0;
+    this.stars = 0;
+    this.timeLeft = 120;
+    this.stats.correctCount = 0;
+    this.stats.wrongCount = 0;
+    this.isGameActive = true;
+    this.inRevisionMode = false;
+
+    // Filter questions shuffled
+    this.activeQuestions = [...QUESTION_BANK].sort(() => Math.random() - 0.5);
+    this.currentQuestionIdx = 0;
+
+    this.updateHUD();
+    this.showScreen('game');
+    sounds.playStart();
+    this.particles.createBurst(window.innerWidth / 2, window.innerHeight / 2, 40, '#00f2fe');
+
+    this.startTimer();
+    this.loadQuestion(this.currentQuestionIdx);
+  }
+
+  startTimer() {
+    if (this.timerInterval) clearInterval(this.timerInterval);
+    this.timerInterval = setInterval(() => {
+      if (!this.isGameActive) return;
+      this.timeLeft--;
+      if (this.timeLeft <= 0) {
+        this.timeLeft = 0;
+        this.updateHUD();
+        this.endGameSession(false);
+      } else {
+        this.updateHUD();
+      }
+    }, 1000);
+  }
+
+  updateHUD() {
+    this.dom.hudScore.innerText = String(this.score).padStart(4, '0');
+    const mins = Math.floor(this.timeLeft / 60);
+    const secs = this.timeLeft % 60;
+    this.dom.hudTimer.innerText = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+    
+    // Lives ❤️
+    let hearts = '';
+    for (let i = 0; i < 3; i++) {
+      hearts += i < this.lives ? '❤️' : '🖤';
+    }
+    this.dom.hudLives.innerText = hearts;
+    this.dom.hudLevel.innerText = this.level;
+    this.dom.hudCombo.innerText = this.combo;
+    this.dom.hudStars.innerText = `⭐ ${this.stars}`;
+  }
+
+  loadQuestion(idx) {
+    if (idx >= this.activeQuestions.length) {
+      // Completed all questions in the bank
+      this.endGameSession(true);
+      return;
+    }
+
+    const q = this.activeQuestions[idx];
+    this.level = q.level;
+    this.updateHUD();
+
+    this.dom.missionTag.innerText = q.missionTitle;
+    this.dom.questionText.innerText = q.prompt;
+    this.dom.arabicTarget.innerText = q.target;
+    this.dom.analogyDisplay.innerText = q.featureText;
+
+    // Clear and build options
+    this.dom.optionsContainer.innerHTML = '';
+    const shuffledOptions = [...q.options].sort(() => Math.random() - 0.5);
+
+    shuffledOptions.forEach((opt, index) => {
+      const card = document.createElement('div');
+      card.className = 'option-card';
+      card.dataset.correct = opt.correct ? "true" : "false";
+      card.dataset.index = index;
+
+      const arabicSpan = document.createElement('div');
+      arabicSpan.className = 'arabic-opt';
+      arabicSpan.innerText = opt.text;
+
+      const labelSpan = document.createElement('div');
+      labelSpan.className = 'label-opt';
+      labelSpan.innerText = opt.label;
+
+      card.appendChild(arabicSpan);
+      card.appendChild(labelSpan);
+
+      // Mouse/Touch Direct Click fallback
+      card.addEventListener('click', () => {
+        this.evaluateAnswer(card, opt.correct);
+      });
+
+      this.dom.optionsContainer.appendChild(card);
+    });
+  }
+
+  handleHandInput(handData) {
+    this.currentPointer.detected = handData.detected;
+    this.currentPointer.x = handData.x;
+    this.currentPointer.y = handData.y;
+    this.currentPointer.isPinching = handData.isPinching;
+
+    // Update Status Indicators
+    if (handData.detected) {
+      this.dom.pipStatusDot.classList.add('active');
+      if (handData.isPinching) {
+        this.dom.gestureText.innerText = "PINCH AKTIF! (KUASA MEMILIH)";
+        this.dom.gestureText.style.color = "var(--neon-magenta)";
+      } else {
+        this.dom.gestureText.innerText = "TANGAN DIKESAN (JARI MENUNJUK)";
+        this.dom.gestureText.style.color = "var(--emerald-green)";
+      }
+    } else {
+      this.dom.pipStatusDot.classList.remove('active');
+      this.dom.gestureText.innerText = "HALAKAN TANGAN KE KAMERA...";
+      this.dom.gestureText.style.color = "var(--sunshine-yellow)";
+    }
+
+    if (!this.isGameActive) return;
+
+    // Add pointer particle trail
+    if (handData.detected) {
+      this.particles.addTrail(handData.x, handData.y);
+    }
+
+    // Hit-testing against active option cards and neon buttons
+    const cards = document.querySelectorAll('.option-card, .neon-btn');
+    cards.forEach(card => {
+      const rect = card.getBoundingClientRect();
+      const isOver = (
+        handData.x >= rect.left &&
+        handData.x <= rect.right &&
+        handData.y >= rect.top &&
+        handData.y <= rect.bottom
+      );
+
+      if (isOver) {
+        card.classList.add('targeted');
+        if (handData.isPinching) {
+          card.classList.add('pinched');
+        } else {
+          card.classList.remove('pinched');
+        }
+
+        // Trigger action on fresh pinch
+        if (handData.pinchTriggered) {
+          sounds.playPinch();
+          this.particles.addShockwave(handData.x, handData.y, '#ff007f');
+          if (card.classList.contains('option-card')) {
+            const isCorrect = card.dataset.correct === "true";
+            this.evaluateAnswer(card, isCorrect);
+          } else {
+            card.click();
+          }
+        }
+      } else {
+        card.classList.remove('targeted');
+        card.classList.remove('pinched');
+      }
+    });
+  }
+
+  checkClickInteractions(clientX, clientY) {
+    this.particles.addShockwave(clientX, clientY, '#00f2fe');
+    sounds.playPinch();
+  }
+
+  evaluateAnswer(cardElement, isCorrect) {
+    if (!this.isGameActive) return;
+
+    // Temporarily freeze to show feedback animation
+    this.isGameActive = false;
+
+    if (isCorrect) {
+      // Correct Answer Mechanics
+      sounds.playCorrect();
+      cardElement.classList.add('correct-flash');
+      this.score += 100 + (this.combo * 20);
+      this.combo++;
+      this.stats.correctCount++;
+      if (this.combo % 3 === 0) {
+        this.stars++;
+      }
+
+      const rect = cardElement.getBoundingClientRect();
+      this.particles.createBurst(rect.left + rect.width / 2, rect.top + rect.height / 2, 35, '#00f59b');
+
+      setTimeout(() => {
+        this.isGameActive = true;
+        this.currentQuestionIdx++;
+        this.loadQuestion(this.currentQuestionIdx);
+      }, 1000);
+    } else {
+      // Wrong Answer Mechanics
+      sounds.playWrong();
+      cardElement.classList.add('wrong-flash');
+      this.combo = 0;
+      this.lives = Math.max(0, this.lives - 1);
+      this.stats.wrongCount++;
+      this.updateHUD();
+
+      const rect = cardElement.getBoundingClientRect();
+      this.particles.createBurst(rect.left + rect.width / 2, rect.top + rect.height / 2, 20, '#ff007f');
+
+      // Check Game Over
+      if (this.lives <= 0) {
+        setTimeout(() => this.endGameSession(false), 900);
+        return;
+      }
+
+      setTimeout(() => {
+        cardElement.classList.remove('wrong-flash');
+        this.isGameActive = true;
+      }, 900);
+    }
+  }
+
+  showHint() {
+    sounds.playPinch();
+    const currentQ = this.activeQuestions[this.currentQuestionIdx];
+    if (currentQ && currentQ.hint) {
+      this.dom.analogyDisplay.innerText = `💡 PETUNJUK: ${currentQ.hint}`;
+      this.dom.analogyDisplay.style.borderColor = 'var(--sunshine-yellow)';
+      this.particles.addShockwave(window.innerWidth / 2, window.innerHeight * 0.45, '#ffe600');
+    }
+  }
+
+  endGameSession(isVictory) {
+    this.isGameActive = false;
+    if (this.timerInterval) clearInterval(this.timerInterval);
+
+    const totalAttempts = this.stats.correctCount + this.stats.wrongCount;
+    const accuracy = totalAttempts > 0 ? Math.round((this.stats.correctCount / totalAttempts) * 100) : 0;
+
+    // Calculate Game Ranking
+    let rankTitle = "Penjelajah Huruf";
+    if (accuracy >= 95) rankTitle = "👑 MASTER MOPEHU!";
+    else if (accuracy >= 80) rankTitle = "⭐ PAKAR HIJAIYAH";
+    else if (accuracy >= 60) rankTitle = "🔍 DETEKTIF HIJAIYAH";
+    else if (accuracy >= 40) rankTitle = "✨ PENCINTA HIJAIYAH";
+
+    document.getElementById('res-score').innerText = this.score;
+    document.getElementById('res-accuracy').innerText = `${accuracy}%`;
+    document.getElementById('res-stars').innerText = `⭐ ${this.stars}`;
+    document.getElementById('res-rank').innerText = rankTitle;
+
+    if (isVictory) {
+      sounds.playVictory();
+      document.getElementById('result-title').innerText = "🎉 TAHNIAH, WIRA HIJAIYAH!";
+      document.getElementById('result-subtitle').innerText = "Semua soalan pengelompokan berjaya diselesaikan dengan cemerlang!";
+      this.particles.createConfetti();
+    } else {
+      sounds.playGameOver();
+      document.getElementById('result-title').innerText = "⚡ MISI SELESAI!";
+      document.getElementById('result-subtitle').innerText = "Usaha yang sangat baik! Tingkatkan latihan untuk menguasai semua kelompok.";
+    }
+
+    this.showScreen('result');
+  }
+
+  openRevisionScreen() {
+    sounds.init();
+    sounds.playPinch();
+    this.isGameActive = false;
+    if (this.timerInterval) clearInterval(this.timerInterval);
+    this.showScreen('revision');
+  }
+
+  renderRevisionCards() {
+    this.dom.revisionList.innerHTML = '';
+    HIJAIYAH_GROUPS.forEach(grp => {
+      const card = document.createElement('div');
+      card.className = 'group-card';
+
+      const header = document.createElement('div');
+      header.className = 'group-header';
+
+      const title = document.createElement('div');
+      title.className = 'group-name';
+      title.innerText = grp.name;
+
+      const letters = document.createElement('div');
+      letters.className = 'group-letters-preview';
+      letters.innerText = grp.letters.join('   ');
+
+      header.appendChild(title);
+      header.appendChild(letters);
+
+      const feature = document.createElement('div');
+      feature.className = 'group-feature';
+      feature.innerHTML = `<b>Ciri Visual:</b> ${grp.feature}<br><span style="color:var(--sunshine-yellow);"><b>Analogi:</b> ${grp.analogy}</span>`;
+
+      card.appendChild(header);
+      card.appendChild(feature);
+
+      card.addEventListener('click', () => {
+        sounds.playPinch();
+        this.particles.addShockwave(window.innerWidth / 2, window.innerHeight / 2, '#00f2fe');
+      });
+
+      this.dom.revisionList.appendChild(card);
+    });
+  }
+
+  startAnimationLoop() {
+    const loop = () => {
+      this.particles.updateAndRender();
+
+      // Render Telekinesis Pointer if hand detected or fallback active
+      if (this.isGameActive && (this.currentPointer.detected || !this.tracker.isRunning)) {
+        this.particles.drawPointer(
+          this.currentPointer.x,
+          this.currentPointer.y,
+          this.currentPointer.isPinching
+        );
+      }
+
+      requestAnimationFrame(loop);
+    };
+    requestAnimationFrame(loop);
+  }
+}
+
+// Instantiate game engine on DOM ready
+window.addEventListener('DOMContentLoaded', () => {
+  // Global safety guard for unhandled WebAssembly promise rejections
+  window.addEventListener('unhandledrejection', (event) => {
+    if (event.reason && String(event.reason).includes('Assertion failed')) {
+      console.warn("Handled MediaPipe runtime assertion rejection gracefully:", event.reason);
+      event.preventDefault();
+    }
+  });
+
+  window.mopehuGame = new MoPeHuGame();
+});
+</script>
+</body>
+</html>
